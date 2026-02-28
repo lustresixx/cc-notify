@@ -1,8 +1,5 @@
 # Build outputs
 dist/
-release/
-*.exe
-*.zip
 
 # Go tooling
 .gocache/
