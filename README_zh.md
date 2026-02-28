@@ -63,10 +63,9 @@ cc-notify help                         显示帮助
 | 模式 | 说明 |
 |------|------|
 | `auto` | 先尝试 toast，失败则回退到弹窗 |
-| `toast` | Windows 系统通知（需要开始菜单快捷方式） |
+| `toast` | Windows 系统通知（需要开始菜单快捷方式）![toast.png](asset/toast.png) |
 | `popup` | 始终使用弹窗对话框 |
-**Windows 系统通知:**
-![toast.png](asset/toast.png)
+
 ## 内容模式
 
 | 模式 | 说明 |

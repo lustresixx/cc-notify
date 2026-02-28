@@ -63,10 +63,8 @@ Each tool tab can be set to `inherit` (use Default) or have its own custom mode 
 | Mode | Description |
 |------|-------------|
 | `auto` | Try toast first, fall back to popup dialog |
-| `toast` | Windows system notification (requires Start Menu shortcut) |
+| `toast` | Windows system notification (requires Start Menu shortcut)![toast.png](asset/toast.png) |
 | `popup` | Always use popup dialog |
-**toast:**
-![toast.png](asset/toast.png)
 
 
 ## Content Modes
