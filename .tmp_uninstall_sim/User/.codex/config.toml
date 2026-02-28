@@ -1,0 +1,4 @@
+﻿notify = ["E:\\Code\\go\\codex-notified\\.tmp_uninstall_sim\\LocalAppData\\codex-notified\\codex-notified.exe", "notify"]
+[foo]
+bar=1
+

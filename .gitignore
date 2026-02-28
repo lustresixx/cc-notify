@@ -1,0 +1,15 @@
+# Build outputs
+dist/
+release/
+*.exe
+*.zip
+
+# Go tooling
+.gocache/
+.gotmp/
+coverage.out
+
+# IDE/OS
+.idea/
+.vscode/
+Thumbs.db
