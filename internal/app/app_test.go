@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cc-notify/internal/notifier"
 )
 
 type fakeNotifier struct {
@@ -20,6 +23,38 @@ func (f *fakeNotifier) Notify(title, body string) error {
 	f.count++
 	f.title = title
 	f.body = body
+	return nil
+}
+
+type fakeActionNotifier struct {
+	fakeNotifier
+	actionCount int
+	actions     []notifier.Action
+}
+
+func (f *fakeActionNotifier) NotifyWithActions(title, body string, actions []notifier.Action) error {
+	f.actionCount++
+	f.title = title
+	f.body = body
+	f.actions = append([]notifier.Action{}, actions...)
+	return nil
+}
+
+type fakeApprovalExecutor struct {
+	calls []approvalInput
+	err   error
+}
+
+type approvalInput struct {
+	parentPID int
+	decision  approvalDecision
+}
+
+func (f *fakeApprovalExecutor) Deliver(parentPID int, decision approvalDecision) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.calls = append(f.calls, approvalInput{parentPID: parentPID, decision: decision})
 	return nil
 }
 
@@ -479,5 +514,122 @@ func TestRun_NoArgsWithBOMSettings(t *testing.T) {
 	code := tool.Run(nil)
 	if code != 0 {
 		t.Fatalf("expected zero exit code, stderr=%q", stderr.String())
+	}
+}
+
+func TestRun_NotifyPausedUsesActionableNotification(t *testing.T) {
+	temp := t.TempDir()
+	settingsPath := filepath.Join(temp, "settings.json")
+
+	var stdout, stderr bytes.Buffer
+	actionNotifier := &fakeActionNotifier{}
+	tool := New(Options{
+		Notifier:     actionNotifier,
+		Stdout:       &stdout,
+		Stderr:       &stderr,
+		SettingsPath: func() (string, error) { return settingsPath, nil },
+	})
+
+	code := tool.Run([]string{"notify", `{"type":"agent-turn-paused","summary":"need approval"}`})
+	if code != 0 {
+		t.Fatalf("expected zero exit code, stderr=%q", stderr.String())
+	}
+	if actionNotifier.actionCount != 1 {
+		t.Fatalf("expected actionable notification, got actionCount=%d", actionNotifier.actionCount)
+	}
+	if len(actionNotifier.actions) != 2 {
+		t.Fatalf("expected 2 actions, got %d", len(actionNotifier.actions))
+	}
+	if actionNotifier.actions[0].Label != "Approve" || actionNotifier.actions[1].Label != "Reject" {
+		t.Fatalf("unexpected action labels: %+v", actionNotifier.actions)
+	}
+
+	uri, err := url.Parse(actionNotifier.actions[0].URI)
+	if err != nil {
+		t.Fatalf("parse action uri: %v", err)
+	}
+	if uri.Scheme != "cc-notify" {
+		t.Fatalf("unexpected action scheme: %q", uri.Scheme)
+	}
+	if uri.Host != "respond" {
+		t.Fatalf("unexpected action host: %q", uri.Host)
+	}
+	if got := uri.Query().Get("decision"); got != string(approvalApprove) {
+		t.Fatalf("unexpected decision in uri: %q", got)
+	}
+}
+
+func TestRun_RespondDeliversPendingApproval(t *testing.T) {
+	temp := t.TempDir()
+	settingsPath := filepath.Join(temp, "settings.json")
+
+	var stdout, stderr bytes.Buffer
+	actionNotifier := &fakeActionNotifier{}
+	executor := &fakeApprovalExecutor{}
+	tool := New(Options{
+		Notifier:         actionNotifier,
+		Stdout:           &stdout,
+		Stderr:           &stderr,
+		SettingsPath:     func() (string, error) { return settingsPath, nil },
+		ApprovalExecutor: executor,
+	})
+
+	code := tool.Run([]string{"notify", `{"type":"agent-turn-paused","summary":"need approval"}`})
+	if code != 0 {
+		t.Fatalf("notify paused failed: stderr=%q", stderr.String())
+	}
+	if len(actionNotifier.actions) == 0 {
+		t.Fatalf("expected action uri to be generated")
+	}
+	uri, err := url.Parse(actionNotifier.actions[0].URI)
+	if err != nil {
+		t.Fatalf("parse action uri: %v", err)
+	}
+	id := uri.Query().Get("id")
+	if id == "" {
+		t.Fatalf("expected approval id in action uri")
+	}
+
+	stderr.Reset()
+	code = tool.Run([]string{"respond", "--id", id, "--decision", "approve"})
+	if code != 0 {
+		t.Fatalf("respond failed: stderr=%q", stderr.String())
+	}
+	if len(executor.calls) != 1 {
+		t.Fatalf("expected one executor call, got %d", len(executor.calls))
+	}
+	if executor.calls[0].decision != approvalApprove {
+		t.Fatalf("unexpected decision: %q", executor.calls[0].decision)
+	}
+}
+
+func TestRun_ProtocolURIRespond(t *testing.T) {
+	temp := t.TempDir()
+	settingsPath := filepath.Join(temp, "settings.json")
+
+	var stdout, stderr bytes.Buffer
+	actionNotifier := &fakeActionNotifier{}
+	executor := &fakeApprovalExecutor{}
+	tool := New(Options{
+		Notifier:         actionNotifier,
+		Stdout:           &stdout,
+		Stderr:           &stderr,
+		SettingsPath:     func() (string, error) { return settingsPath, nil },
+		ApprovalExecutor: executor,
+	})
+
+	code := tool.Run([]string{"notify", `{"type":"agent-turn-paused","summary":"need approval"}`})
+	if code != 0 {
+		t.Fatalf("notify paused failed: stderr=%q", stderr.String())
+	}
+	uri := actionNotifier.actions[0].URI
+
+	stderr.Reset()
+	code = tool.Run([]string{uri})
+	if code != 0 {
+		t.Fatalf("protocol respond failed: stderr=%q", stderr.String())
+	}
+	if len(executor.calls) != 1 {
+		t.Fatalf("expected one executor call, got %d", len(executor.calls))
 	}
 }

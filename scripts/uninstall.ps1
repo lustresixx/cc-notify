@@ -8,6 +8,7 @@ $targetDir = Join-Path $env:LOCALAPPDATA "cc-notify"
 $targetExe = Join-Path $targetDir "cc-notify.exe"
 $configPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\cc-notify.lnk"
+$protocolKey = "HKCU:\Software\Classes\cc-notify"
 
 function To-Bool([string]$value, [bool]$defaultValue) {
   switch ($value.Trim().ToLowerInvariant()) {
@@ -56,6 +57,11 @@ if (Test-Path $targetExe) {
 if (Test-Path $shortcutPath) {
   Remove-Item -Force $shortcutPath
   Write-Host "Removed Start Menu shortcut."
+}
+
+if (Test-Path $protocolKey) {
+  Remove-Item -Recurse -Force $protocolKey
+  Write-Host "Removed cc-notify:// protocol handler."
 }
 
 if (Test-Path $targetDir) {

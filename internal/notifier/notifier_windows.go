@@ -71,9 +71,17 @@ func NewWithConfig(cfg Config) Service {
 }
 
 func (n *windowsNotifier) Notify(title, body string) error {
+	return n.notify(title, body, nil)
+}
+
+func (n *windowsNotifier) NotifyWithActions(title, body string, actions []Action) error {
+	return n.notify(title, body, actions)
+}
+
+func (n *windowsNotifier) notify(title, body string, actions []Action) error {
 	switch n.mode {
 	case modeToast:
-		if err := n.runPowerShell(buildToastScript(title, body, n.appID)); err != nil {
+		if err := n.runPowerShell(buildToastScriptWithActions(title, body, n.appID, actions)); err != nil {
 			return fmt.Errorf("send windows notification (toast): %w", err)
 		}
 		return nil
@@ -83,7 +91,7 @@ func (n *windowsNotifier) Notify(title, body string) error {
 		}
 		return nil
 	default:
-		if err := n.runPowerShell(buildToastScript(title, body, n.appID)); err != nil {
+		if err := n.runPowerShell(buildToastScriptWithActions(title, body, n.appID, actions)); err != nil {
 			fallbackErr := n.runPowerShell(buildPopupScript(title, body))
 			if fallbackErr != nil {
 				return fmt.Errorf("send windows notification: toast failed: %v; popup fallback failed: %w", err, fallbackErr)

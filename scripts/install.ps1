@@ -14,6 +14,7 @@ $configPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 $settingsPath = Join-Path $targetDir "settings.json"
 $toastAppID = "cc-notify.desktop"
 $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\cc-notify.lnk"
+$protocolKey = "HKCU:\Software\Classes\cc-notify"
 
 function Get-ExpectedNotifyLine([string]$path) {
   $escaped = $path.Replace('\', '\\')
@@ -205,6 +206,20 @@ function Update-SettingsToastAppId([string]$path, [string]$appID) {
   }
 }
 
+function Ensure-UriProtocol([string]$exePath) {
+  New-Item -Path $protocolKey -Force | Out-Null
+  Set-Item -Path $protocolKey -Value "URL:cc-notify Protocol"
+  New-ItemProperty -Path $protocolKey -Name "URL Protocol" -Value "" -PropertyType String -Force | Out-Null
+
+  $iconKey = Join-Path $protocolKey "DefaultIcon"
+  New-Item -Path $iconKey -Force | Out-Null
+  Set-Item -Path $iconKey -Value "`"$exePath`",0"
+
+  $commandKey = Join-Path $protocolKey "shell\open\command"
+  New-Item -Path $commandKey -Force | Out-Null
+  Set-Item -Path $commandKey -Value "`"$exePath`" `"%1`""
+}
+
 $installed = $false
 if (-not $forceReinstallBool) {
   $installed = Test-IsInstalled $targetExe $configPath
@@ -239,6 +254,7 @@ if ($installed) {
 
 Ensure-ToastShortcut $targetExe $shortcutPath $toastAppID
 Update-SettingsToastAppId $settingsPath $toastAppID
+Ensure-UriProtocol $targetExe
 
 if ($launchInteractiveBool) {
   Write-Host "Launching interactive control center..."
