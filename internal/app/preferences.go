@@ -20,7 +20,7 @@ const (
 // Preferences stores user-facing behavior controls for notifications.
 type Preferences struct {
 	Enabled          bool   `json:"enabled"`
-	Persist          bool   `json:"persist"`
+	Persist          bool   `json:"persist"` // kept for backward compat; always treated as true
 	Mode             string `json:"mode"`
 	Content          string `json:"content"`
 	IncludeDir       bool   `json:"include_dir"`
@@ -88,6 +88,8 @@ func DefaultPreferences() Preferences {
 
 func normalizePreferences(p Preferences) Preferences {
 	def := DefaultPreferences()
+	// Persist is always true; the field is kept for backward compat only.
+	p.Persist = true
 	if strings.TrimSpace(p.Mode) == "" {
 		p.Mode = def.Mode
 	}

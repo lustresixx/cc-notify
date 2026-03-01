@@ -2,6 +2,7 @@ package app
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,34 +14,24 @@ import (
 
 const (
 	colorReset   = "\x1b[0m"
-	colorCyan    = "\x1b[36m"
-	colorGreen   = "\x1b[32m"
-	colorRed     = "\x1b[31m"
-	colorYellow  = "\x1b[33m"
+	colorCyan    = "\x1b[96m" // bright cyan
+	colorGreen   = "\x1b[92m" // bright green
+	colorRed     = "\x1b[91m" // bright red
+	colorYellow  = "\x1b[93m" // bright yellow
 	colorDim     = "\x1b[2m"
 	colorBold    = "\x1b[1m"
-	colorMagenta = "\x1b[35m"
-	colorBlue    = "\x1b[34m"
-	colorWhite   = "\x1b[37m"
-	colorBgCyan  = "\x1b[46m"
-	colorBgGreen = "\x1b[42m"
-	colorBgRed   = "\x1b[41m"
+	colorMagenta = "\x1b[95m" // bright magenta
+	colorWhite   = "\x1b[97m" // bright white
 	colorBgDim   = "\x1b[100m"
-	colorBlack   = "\x1b[30m"
-	colorItalic  = "\x1b[3m"
 
 	// Unicode symbols
 	symBullet   = "●"
 	symCircle   = "○"
-	symCheck    = "✓"
-	symCross    = "✗"
 	symArrow    = "❯"
 	symDot      = "·"
 	symBar      = "│"
 	symCornerTL = "╭"
 	symCornerTR = "╮"
-	symCornerBL = "╰"
-	symCornerBR = "╯"
 	symHLine    = "─"
 	symRadioOn  = "◉"
 	symRadioOff = "○"
@@ -52,11 +43,16 @@ const (
 	symDisk     = "💾"
 	symPlug     = "🔌"
 	symWave     = "👋"
-	symRight    = "→"
 )
 
 // version is the tool version shown in the header.
 const version = "v0.4.0"
+
+const (
+	tabDefault = 0
+	tabCodex   = 1
+	tabClaude  = 2
+)
 
 type keyCode int
 
@@ -83,12 +79,12 @@ func (a *App) runInteractive() error {
 		fmt.Fprintln(a.stdout)
 
 		if err := a.runInstall(nil); err != nil {
-			fmt.Fprintf(a.stderr, "  %s%s warning:%s auto install failed: %v\n", colorBold, colorYellow, colorReset, err)
+			fmt.Fprintf(a.stderr, "  %s%s note:%s auto install failed: %v\n", colorBold, colorYellow, colorReset, err)
 		}
 
 		prefs.SetupDone = true
 		if saveErr := a.savePreferences(prefs); saveErr != nil {
-			fmt.Fprintf(a.stderr, "  %s%s warning:%s save setup state failed: %v\n", colorBold, colorYellow, colorReset, saveErr)
+			fmt.Fprintf(a.stderr, "  %s%s note:%s save setup state failed: %v\n", colorBold, colorYellow, colorReset, saveErr)
 		}
 	}
 
@@ -117,11 +113,6 @@ func (a *App) runInteractiveKeyUI(prefs *Preferences) error {
 	}
 	defer restore()
 
-	const (
-		tabDefault = 0
-		tabCodex   = 1
-		tabClaude  = 2
-	)
 	tabNames := []string{"Default", "Codex", "Claude Code"}
 
 	tab := tabDefault
@@ -213,10 +204,8 @@ func (a *App) runInteractiveKeyUI(prefs *Preferences) error {
 			}
 			status = result.status
 		case keyEsc:
-			if prefs.Persist {
-				if err := a.savePreferences(*prefs); err != nil {
-					fmt.Fprintf(a.stderr, "  %swarning:%s save on exit failed: %v\n", colorYellow, colorReset, err)
-				}
+			if err := a.savePreferences(*prefs); err != nil {
+				fmt.Fprintf(a.stderr, "  %snote:%s save on exit failed: %v\n", colorYellow, colorReset, err)
 			}
 			clearScreen(a.stdout)
 			fmt.Fprintf(a.stdout, "  %s%sGoodbye!%s\n\n", colorDim, colorCyan, colorReset)
@@ -240,20 +229,19 @@ type menuItem struct {
 
 func (a *App) renderTabInfo(tab int, p Preferences) {
 	switch tab {
-	case 0: // Default
+	case tabDefault:
 		statusPill := fmt.Sprintf("%s%s%s ON%s", colorBold, colorGreen, symBullet, colorReset)
 		if !p.Enabled {
 			statusPill = fmt.Sprintf("%s%s OFF%s", colorDim, symCircle, colorReset)
 		}
 		fmt.Fprintf(a.stdout, "  %s%s%sGlobal defaults applied to all tools%s\n",
 			colorDim, symBar, " ", colorReset)
-		fmt.Fprintf(a.stdout, "  %s%s%s %s  mode:%s%s%s  content:%s%s%s  persist:%s\n",
+		fmt.Fprintf(a.stdout, "  %s%s%s %s  mode:%s%s%s  content:%s%s%s\n",
 			colorDim, symBar, colorReset,
 			statusPill,
 			colorBold, p.Mode, colorReset,
-			colorBold, p.Content, colorReset,
-			toggleIndicator(p.Persist))
-	case 1: // Codex
+			colorBold, p.Content, colorReset)
+	case tabCodex:
 		en, mode, content := p.ToolPrefs("codex")
 		statusPill := fmt.Sprintf("%s%s%s ON%s", colorBold, colorGreen, symBullet, colorReset)
 		if !en {
@@ -270,7 +258,7 @@ func (a *App) renderTabInfo(tab int, p Preferences) {
 			statusPill,
 			colorBold, mode, colorReset,
 			colorBold, content, colorReset)
-	case 2: // Claude
+	case tabClaude:
 		en, mode, content := p.ToolPrefs("claude")
 		statusPill := fmt.Sprintf("%s%s%s ON%s", colorBold, colorGreen, symBullet, colorReset)
 		if !en {
@@ -293,11 +281,11 @@ func (a *App) renderTabInfo(tab int, p Preferences) {
 
 func (a *App) tabMenuItems(tab int, p Preferences) []menuItem {
 	switch tab {
-	case 0:
+	case tabDefault:
 		return a.defaultTabItems(p)
-	case 1:
+	case tabCodex:
 		return a.codexTabItems(p)
-	case 2:
+	case tabClaude:
 		return a.claudeTabItems(p)
 	}
 	return nil
@@ -329,11 +317,7 @@ func (a *App) defaultTabItems(p Preferences) []menuItem {
 					return actionResult{status: fmt.Sprintf("%s✗ %v%s", colorRed, err, colorReset)}
 				}
 				prefs.Mode = []string{"auto", "toast", "popup"}[sel]
-				s := a.saveOrSessionText(*prefs)
-				if previewErr := a.previewModeChoice(*prefs); previewErr == nil {
-					s += fmt.Sprintf(" %s✓ Preview sent.%s", colorGreen, colorReset)
-				}
-				return actionResult{status: s}
+				return actionResult{status: a.saveOrSessionText(*prefs)}
 			},
 		},
 		{
@@ -361,13 +345,6 @@ func (a *App) defaultTabItems(p Preferences) []menuItem {
 				prefs.IncludeModel = sel[1]
 				prefs.IncludeEvent = sel[2]
 				prefs.FieldsConfigured = true
-				return actionResult{status: a.saveOrSessionText(*prefs)}
-			},
-		},
-		{
-			label: fmt.Sprintf("%s Persistence              %s", symDisk, toggleIndicator(p.Persist)),
-			action: func(prefs *Preferences) actionResult {
-				prefs.Persist = !prefs.Persist
 				return actionResult{status: a.saveOrSessionText(*prefs)}
 			},
 		},
@@ -407,9 +384,7 @@ func (a *App) defaultTabItems(p Preferences) []menuItem {
 		{
 			label: fmt.Sprintf("%s Exit", symWave),
 			action: func(prefs *Preferences) actionResult {
-				if prefs.Persist {
-					_ = a.savePreferences(*prefs)
-				}
+				_ = a.savePreferences(*prefs)
 				clearScreen(a.stdout)
 				fmt.Fprintf(a.stdout, "  %s%sGoodbye!%s\n\n", colorDim, colorCyan, colorReset)
 				return actionExit
@@ -620,7 +595,7 @@ func (a *App) renderHeader() {
 		colorDim, version,
 		colorMagenta, colorReset)
 	fmt.Fprintf(a.stdout, "  %s%s╰─ %sNotifications for Codex CLI & Claude Code%s %s─╯%s\n",
-		colorDim, colorMagenta, colorDim, colorReset,
+		colorDim, colorMagenta, colorCyan, colorReset,
 		colorMagenta, colorReset)
 	fmt.Fprintln(a.stdout)
 }
@@ -652,20 +627,13 @@ func (a *App) runInteractiveLineUI(prefs *Preferences) error {
 		case "2":
 			prefs.Mode = nextMode(prefs.Mode)
 			a.printSavedOrSession(*prefs)
-			if err := a.previewModeChoice(*prefs); err != nil {
-				fmt.Fprintf(a.stderr, "  %s%s✗%s mode preview failed: %v\n", colorBold, colorRed, colorReset, err)
-			} else {
-				fmt.Fprintf(a.stdout, "  Mode → %s%s%s (%s)\n", colorCyan, prefs.Mode, colorReset, modeHint(prefs.Mode))
-			}
+			fmt.Fprintf(a.stdout, "  Mode -> %s%s%s (%s)\n", colorCyan, prefs.Mode, colorReset, modeHint(prefs.Mode))
 		case "3":
 			prefs.Content = nextContentMode(prefs.Content)
 			a.printSavedOrSession(*prefs)
 		case "4":
-			prefs.Persist = !prefs.Persist
-			a.printSavedOrSession(*prefs)
-		case "5":
 			fmt.Fprintf(a.stdout, "  Toast AppId (blank = default): ")
-			appID, e := reader.ReadString('\n')
+			appID, e := readInteractiveLine(reader, nil)
 			if e != nil {
 				return fmt.Errorf("read app id: %w", e)
 			}
@@ -675,40 +643,38 @@ func (a *App) runInteractiveLineUI(prefs *Preferences) error {
 			}
 			prefs.ToastAppID = appID
 			a.printSavedOrSession(*prefs)
-		case "6":
+		case "5":
 			if err := a.previewNotification(*prefs); err != nil {
 				fmt.Fprintf(a.stderr, "  %s%s✗%s preview failed: %v\n", colorBold, colorRed, colorReset, err)
 			} else {
 				fmt.Fprintf(a.stdout, "  %s%s✓%s Preview sent.\n", colorBold, colorGreen, colorReset)
 			}
-		case "7":
+		case "6":
 			if err := a.runInstall([]string{"codex"}); err != nil {
 				fmt.Fprintf(a.stderr, "  %s%s✗%s Codex install failed: %v\n", colorBold, colorRed, colorReset, err)
 			} else {
 				fmt.Fprintf(a.stdout, "  %s%s✓%s Codex hook installed.\n", colorBold, colorGreen, colorReset)
 			}
-		case "8":
+		case "7":
 			if err := a.runInstall([]string{"claude"}); err != nil {
 				fmt.Fprintf(a.stderr, "  %s%s✗%s Claude install failed: %v\n", colorBold, colorRed, colorReset, err)
 			} else {
 				fmt.Fprintf(a.stdout, "  %s%s✓%s Claude Code hook installed.\n", colorBold, colorGreen, colorReset)
 			}
-		case "9":
+		case "8":
 			if err := a.savePreferences(*prefs); err != nil {
 				fmt.Fprintf(a.stderr, "  %s%s✗%s save failed: %v\n", colorBold, colorRed, colorReset, err)
 			} else {
 				fmt.Fprintf(a.stdout, "  %s%s✓ Saved.%s\n", colorBold, colorGreen, colorReset)
 			}
 		case "0", "q", "quit", "exit":
-			if prefs.Persist {
-				if err := a.savePreferences(*prefs); err != nil {
-					fmt.Fprintf(a.stderr, "  %swarning:%s save on exit failed: %v\n", colorYellow, colorReset, err)
-				}
+			if err := a.savePreferences(*prefs); err != nil {
+				fmt.Fprintf(a.stderr, "  %snote:%s save on exit failed: %v\n", colorYellow, colorReset, err)
 			}
 			fmt.Fprintf(a.stdout, "\n  %s%sGoodbye!%s\n\n", colorDim, colorCyan, colorReset)
 			return nil
 		default:
-			fmt.Fprintf(a.stderr, "  %sUnknown option. Choose 1-9 or 0 to exit.%s\n", colorDim, colorReset)
+			fmt.Fprintf(a.stderr, "  %sUnknown option. Choose 1-8 or 0 to exit.%s\n", colorDim, colorReset)
 		}
 	}
 }
@@ -722,7 +688,8 @@ func (a *App) renderInteractiveMenu(p Preferences) {
 	if !p.Enabled {
 		statusStr = "OFF"
 	}
-	fmt.Fprintf(a.stdout, "  Status: %s  Mode: %s  Content: %s  Persist: %v\n", statusStr, p.Mode, p.Content, p.Persist)
+	fmt.Fprintf(a.stdout, "  Status: %s  Mode: %s  Content: %s\n", statusStr, p.Mode, p.Content)
+	fmt.Fprintf(a.stdout, "  %s%sSettings auto-saved to disk on every change.%s\n", colorDim, symDot+" ", colorReset)
 	fmt.Fprintln(a.stdout)
 
 	type menuSection struct {
@@ -745,8 +712,7 @@ func (a *App) renderInteractiveMenu(p Preferences) {
 				{"1", "Toggle notifications", ""},
 				{"2", "Cycle notification mode", "auto/toast/popup"},
 				{"3", "Cycle content mode", "summary/full/complete"},
-				{"4", "Toggle persistence", "survive restart"},
-				{"5", "Set Toast AppId", ""},
+				{"4", "Set Toast AppId", ""},
 			},
 		},
 		{
@@ -756,10 +722,10 @@ func (a *App) renderInteractiveMenu(p Preferences) {
 				text string
 				hint string
 			}{
-				{"6", "Send preview notification", ""},
-				{"7", "Install Codex hook", "~/.codex/config.toml"},
-				{"8", "Install Claude Code hook", "~/.claude/settings.json"},
-				{"9", "Save settings now", ""},
+				{"5", "Send preview notification", ""},
+				{"6", "Install Codex hook", "~/.codex/config.toml"},
+				{"7", "Install Claude Code hook", "~/.claude/settings.json"},
+				{"8", "Save settings now", ""},
 				{"0", "Exit", ""},
 			},
 		},
@@ -903,23 +869,69 @@ func (a *App) promptLine(prompt string) (string, error) {
 	fmt.Fprintln(a.stdout)
 	fmt.Fprint(a.stdout, colorCyan+prompt+colorReset)
 	reader := bufio.NewReader(a.stdin)
-	line, err := reader.ReadString('\n')
+	line, err := readInteractiveLine(reader, a.stdout)
 	if err != nil {
 		return "", fmt.Errorf("read line: %w", err)
 	}
 	return strings.TrimSpace(line), nil
 }
 
+func readInteractiveLine(reader *bufio.Reader, echo io.Writer) (string, error) {
+	var chars []rune
+	for {
+		r, _, err := reader.ReadRune()
+		if err != nil {
+			if errors.Is(err, io.EOF) && len(chars) > 0 {
+				if echo != nil {
+					fmt.Fprintln(echo)
+				}
+				return string(chars), nil
+			}
+			return "", err
+		}
+
+		switch r {
+		case '\r':
+			if reader.Buffered() > 0 {
+				if next, peekErr := reader.Peek(1); peekErr == nil && len(next) == 1 && next[0] == '\n' {
+					_, _ = reader.ReadByte()
+				}
+			}
+			if echo != nil {
+				fmt.Fprintln(echo)
+			}
+			return string(chars), nil
+		case '\n':
+			if echo != nil {
+				fmt.Fprintln(echo)
+			}
+			return string(chars), nil
+		case '\b', 127:
+			if len(chars) > 0 {
+				chars = chars[:len(chars)-1]
+				if echo != nil {
+					fmt.Fprint(echo, "\b \b")
+				}
+			}
+		default:
+			if r < 32 {
+				continue
+			}
+			chars = append(chars, r)
+			if echo != nil {
+				fmt.Fprint(echo, string(r))
+			}
+		}
+	}
+}
+
 func boolPtr(v bool) *bool { return &v }
 
 func (a *App) saveOrSessionText(p Preferences) string {
-	if p.Persist {
-		if err := a.savePreferences(p); err != nil {
-			return fmt.Sprintf("%s%s✗ Save failed:%s %v", colorBold, colorRed, colorReset, err)
-		}
-		return fmt.Sprintf("%s%s✓ Saved.%s", colorBold, colorGreen, colorReset)
+	if err := a.savePreferences(p); err != nil {
+		return fmt.Sprintf("%s%s✗ Save failed:%s %v", colorBold, colorRed, colorReset, err)
 	}
-	return fmt.Sprintf("%sApplied for this session only.%s", colorDim, colorReset)
+	return fmt.Sprintf("%s%s✓ Saved.%s", colorBold, colorGreen, colorReset)
 }
 
 func (a *App) printSavedOrSession(p Preferences) {
@@ -1039,6 +1051,7 @@ func readKey(reader *bufio.Reader) (keyCode, error) {
 }
 
 func clearScreen(out io.Writer) {
+	//nolint:errcheck
 	fmt.Fprint(out, "\x1b[2J\x1b[H")
 }
 
@@ -1064,20 +1077,6 @@ func (a *App) stdoutIsTTY() bool {
 		return false
 	}
 	return info.Mode()&os.ModeCharDevice != 0
-}
-
-func onOff(v bool) string {
-	if v {
-		return "ON"
-	}
-	return "OFF"
-}
-
-func yesNo(v bool) string {
-	if v {
-		return "yes"
-	}
-	return "no"
 }
 
 func indexOf(options []string, current string) int {
