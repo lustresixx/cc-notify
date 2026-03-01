@@ -40,6 +40,7 @@ cc-notify notify <json>                handle Codex event payload
 cc-notify notify --claude              handle Claude Code hook (stdin)
 cc-notify notify --file <path>         read payload from file
 cc-notify notify --b64 <base64>        base64 encoded payload
+cc-notify respond --id <id> --decision <proceed|proceed-always|reject>  apply paused prompt response
 cc-notify test-notify [title] [body]   send test notification
 cc-notify test-toast [title] [body]    test toast mode
 cc-notify help                         show this help
@@ -125,4 +126,3 @@ Or double-click `uninstall.cmd` from the release folder.
 ## License
 
 [MIT](LICENSE)
-

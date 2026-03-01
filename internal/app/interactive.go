@@ -46,7 +46,7 @@ const (
 )
 
 // version is the tool version shown in the header.
-const version = "v0.4.0"
+const version = "v0.4.1"
 
 const (
 	tabDefault = 0

@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "dev",
+  [string]$Version = "",
   [string]$InputDir = "dist",
   [string]$OutputDir = "release"
 )
@@ -9,6 +9,13 @@ $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $fullInputDir = Join-Path $projectRoot $InputDir
 $fullOutputDir = Join-Path $projectRoot $OutputDir
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+  throw "Version is required. Use semantic version format like -Version v0.4.1."
+}
+if ($Version -notmatch '^v\d+\.\d+\.\d+$') {
+  throw "Invalid version format '$Version'. Expected: v<major>.<minor>.<patch> (example: v0.4.1)."
+}
 
 if (-not (Test-Path $fullInputDir)) {
   throw "Input directory not found: $fullInputDir. Run scripts/build.ps1 first."

@@ -400,7 +400,16 @@ func (a *App) runNotify(args []string) error {
 	}
 
 	if payload.Type == "agent-turn-paused" {
-		if actionService, ok := service.(notifier.ActionService); ok {
+		actionTarget := service
+		if a.defaultNotifier {
+			// For approval prompts, prefer a guaranteed interactive dialog path.
+			// Toast action buttons can be hidden by OS banner behavior.
+			actionTarget = notifier.NewWithConfig(notifier.Config{
+				Mode:       "popup",
+				ToastAppID: prefs.ToastAppID,
+			})
+		}
+		if actionService, ok := actionTarget.(notifier.ActionService); ok {
 			pending, createErr := a.createPendingApproval(os.Getppid())
 			if createErr != nil {
 				return fmt.Errorf("create pending approval: %w", createErr)

@@ -40,6 +40,7 @@ cc-notify notify <json>                处理 Codex 事件载荷
 cc-notify notify --claude              处理 Claude Code hook（从 stdin 读取）
 cc-notify notify --file <path>         从文件读取载荷
 cc-notify notify --b64 <base64>        base64 编码的载荷
+cc-notify respond --id <id> --decision <proceed|proceed-always|reject>  处理暂停审批选择
 cc-notify test-notify [title] [body]   发送测试通知
 cc-notify test-toast [title] [body]    测试 toast 模式
 cc-notify help                         显示帮助
