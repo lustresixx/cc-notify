@@ -537,10 +537,16 @@ func TestRun_NotifyPausedUsesActionableNotification(t *testing.T) {
 	if actionNotifier.actionCount != 1 {
 		t.Fatalf("expected actionable notification, got actionCount=%d", actionNotifier.actionCount)
 	}
-	if len(actionNotifier.actions) != 2 {
-		t.Fatalf("expected 2 actions, got %d", len(actionNotifier.actions))
+	if len(actionNotifier.actions) != 3 {
+		t.Fatalf("expected 3 actions, got %d", len(actionNotifier.actions))
 	}
-	if actionNotifier.actions[0].Label != "Approve" || actionNotifier.actions[1].Label != "Reject" {
+	if actionNotifier.actions[0].Label != "Yes, proceed" {
+		t.Fatalf("unexpected first action label: %q", actionNotifier.actions[0].Label)
+	}
+	if !strings.Contains(actionNotifier.actions[1].Label, "don't ask again") {
+		t.Fatalf("unexpected second action label: %q", actionNotifier.actions[1].Label)
+	}
+	if actionNotifier.actions[2].Label != "No, tell Codex to do differently" {
 		t.Fatalf("unexpected action labels: %+v", actionNotifier.actions)
 	}
 
@@ -554,7 +560,7 @@ func TestRun_NotifyPausedUsesActionableNotification(t *testing.T) {
 	if uri.Host != "respond" {
 		t.Fatalf("unexpected action host: %q", uri.Host)
 	}
-	if got := uri.Query().Get("decision"); got != string(approvalApprove) {
+	if got := uri.Query().Get("decision"); got != string(approvalProceed) {
 		t.Fatalf("unexpected decision in uri: %q", got)
 	}
 }
@@ -598,7 +604,7 @@ func TestRun_RespondDeliversPendingApproval(t *testing.T) {
 	if len(executor.calls) != 1 {
 		t.Fatalf("expected one executor call, got %d", len(executor.calls))
 	}
-	if executor.calls[0].decision != approvalApprove {
+	if executor.calls[0].decision != approvalProceed {
 		t.Fatalf("unexpected decision: %q", executor.calls[0].decision)
 	}
 }

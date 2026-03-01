@@ -80,18 +80,47 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 }
 
 func buildPopupScript(title, body string) string {
+	return buildPopupScriptWithActions(title, body, nil)
+}
+
+func buildPopupScriptWithActions(title, body string, actions []Action) string {
 	titleB64 := base64.StdEncoding.EncodeToString([]byte(title))
 	bodyB64 := base64.StdEncoding.EncodeToString([]byte(body))
+	labelArray := base64ArrayFromActions(actions, func(a Action) string { return a.Label })
+	uriArray := base64ArrayFromActions(actions, func(a Action) string { return a.URI })
 
 	return fmt.Sprintf(
 		`$ErrorActionPreference = 'Stop'
 $title = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('%s'))
 $body = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('%s'))
+$actionLabels = %s
+$actionUris = %s
 $wshell = New-Object -ComObject WScript.Shell
-$null = $wshell.Popup($body, 8, $title, 0x40)
+if ($actionLabels.Count -eq 3 -and $actionUris.Count -eq 3) {
+  $yesLabel = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($actionLabels[0]))
+  $noLabel = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($actionLabels[1]))
+  $cancelLabel = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($actionLabels[2]))
+  $nl = [Environment]::NewLine
+  $msg = $body + $nl + $nl + "Yes -> " + $yesLabel + $nl + "No -> " + $noLabel + $nl + "Cancel -> " + $cancelLabel
+  $choice = $wshell.Popup($msg, 25, $title, 0x43)
+  if ($choice -eq 6) {
+    $uri = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($actionUris[0]))
+    if (-not [string]::IsNullOrWhiteSpace($uri)) { Start-Process $uri | Out-Null }
+  } elseif ($choice -eq 7) {
+    $uri = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($actionUris[1]))
+    if (-not [string]::IsNullOrWhiteSpace($uri)) { Start-Process $uri | Out-Null }
+  } elseif ($choice -eq 2) {
+    $uri = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($actionUris[2]))
+    if (-not [string]::IsNullOrWhiteSpace($uri)) { Start-Process $uri | Out-Null }
+  }
+} else {
+  $null = $wshell.Popup($body, 8, $title, 0x40)
+}
 `,
 		titleB64,
 		bodyB64,
+		labelArray,
+		uriArray,
 	)
 }
 

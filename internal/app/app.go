@@ -405,10 +405,7 @@ func (a *App) runNotify(args []string) error {
 			if createErr != nil {
 				return fmt.Errorf("create pending approval: %w", createErr)
 			}
-			actions := []notifier.Action{
-				{Label: "Approve", URI: approvalActionURI(pending.ID, approvalApprove)},
-				{Label: "Reject", URI: approvalActionURI(pending.ID, approvalReject)},
-			}
+			actions := buildPausedActions(payload.Summary, pending.ID)
 			if err := actionService.NotifyWithActions(title, body, actions); err != nil {
 				_ = a.deletePendingApproval(pending.ID)
 				return err
@@ -782,13 +779,52 @@ func parseApprovalProtocolURI(raw string) (string, approvalDecision, error) {
 
 func parseApprovalDecision(raw string) (approvalDecision, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "proceed", "once", "1":
+		return approvalProceed, nil
+	case "proceed-always", "always", "persist", "2":
+		return approvalProceedAlways, nil
 	case "approve", "yes", "y":
-		return approvalApprove, nil
+		return approvalProceed, nil
 	case "reject", "no", "n":
+		return approvalReject, nil
+	case "esc", "escape", "3":
 		return approvalReject, nil
 	default:
 		return "", fmt.Errorf("unsupported decision: %s", strconv.Quote(raw))
 	}
+}
+
+func buildPausedActions(summary, id string) []notifier.Action {
+	secondLabel := "Yes, and don't ask again for this command pattern"
+	if cmd := firstBacktickValue(summary); cmd != "" {
+		secondLabel = "Yes, don't ask again for `" + cmd + "`"
+	}
+	return []notifier.Action{
+		{Label: "Yes, proceed", URI: approvalActionURI(id, approvalProceed)},
+		{Label: secondLabel, URI: approvalActionURI(id, approvalProceedAlways)},
+		{Label: "No, tell Codex to do differently", URI: approvalActionURI(id, approvalReject)},
+	}
+}
+
+func firstBacktickValue(input string) string {
+	raw := strings.TrimSpace(input)
+	start := strings.Index(raw, "`")
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(raw[start+1:], "`")
+	if end < 0 {
+		return ""
+	}
+	value := strings.TrimSpace(raw[start+1 : start+1+end])
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) > 56 {
+		return string(runes[:56]) + "..."
+	}
+	return value
 }
 
 func (a *App) printUsage() {
@@ -802,7 +838,7 @@ func (a *App) printUsage() {
 	fmt.Fprintf(a.stdout, "    cc-notify notify --claude              %shandle Claude Code hook (stdin)%s\n", colorDim, colorReset)
 	fmt.Fprintf(a.stdout, "    cc-notify notify --file <path>         %sread payload from file%s\n", colorDim, colorReset)
 	fmt.Fprintf(a.stdout, "    cc-notify notify --b64 <base64>        %sbase64 encoded payload%s\n", colorDim, colorReset)
-	fmt.Fprintf(a.stdout, "    cc-notify respond --id <id> --decision <approve|reject> %sapply pause response%s\n", colorDim, colorReset)
+	fmt.Fprintf(a.stdout, "    cc-notify respond --id <id> --decision <proceed|proceed-always|reject> %sapply pause response%s\n", colorDim, colorReset)
 	fmt.Fprintf(a.stdout, "    cc-notify test-notify [title] [body]   %ssend test notification%s\n", colorDim, colorReset)
 	fmt.Fprintf(a.stdout, "    cc-notify test-toast [title] [body]    %stest toast mode%s\n", colorDim, colorReset)
 	fmt.Fprintf(a.stdout, "    cc-notify help                         %sshow this help%s\n\n", colorDim, colorReset)

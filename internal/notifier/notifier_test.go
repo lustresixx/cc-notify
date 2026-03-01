@@ -68,3 +68,34 @@ func TestBuildPopupScript_EmbedsBase64Payload(t *testing.T) {
 		t.Fatalf("raw payload should not be embedded directly: %q", script)
 	}
 }
+
+func TestBuildToastScriptWithActions_EmbedsActionPayload(t *testing.T) {
+	uri := "cc-notify://respond?id=1&decision=proceed"
+	uriB64 := base64.StdEncoding.EncodeToString([]byte(uri))
+	script := buildToastScriptWithActions("title", "body", "app", []Action{
+		{Label: "Yes, proceed", URI: uri},
+		{Label: "No", URI: "cc-notify://respond?id=1&decision=reject"},
+	})
+
+	if !strings.Contains(script, "activationType") {
+		t.Fatalf("expected toast actions in script: %q", script)
+	}
+	if !strings.Contains(script, uriB64) {
+		t.Fatalf("expected encoded action uri payload in script: %q", script)
+	}
+}
+
+func TestBuildPopupScriptWithActions_UsesYesNoCancelFlow(t *testing.T) {
+	script := buildPopupScriptWithActions("title", "body", []Action{
+		{Label: "Yes, proceed", URI: "cc-notify://respond?id=1&decision=proceed"},
+		{Label: "Yes, don't ask again", URI: "cc-notify://respond?id=1&decision=proceed-always"},
+		{Label: "No", URI: "cc-notify://respond?id=1&decision=reject"},
+	})
+
+	if !strings.Contains(script, "Yes ->") || !strings.Contains(script, "Cancel ->") {
+		t.Fatalf("expected mapped button legend in popup script: %q", script)
+	}
+	if !strings.Contains(script, "Start-Process") {
+		t.Fatalf("expected protocol launch in popup script: %q", script)
+	}
+}

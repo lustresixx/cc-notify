@@ -21,9 +21,16 @@ func (windowsApprovalExecutor) Deliver(parentPID int, decision approvalDecision)
 		return fmt.Errorf("cannot deliver approval: invalid parent process id")
 	}
 
-	keys := "n{ENTER}"
-	if decision == approvalApprove {
-		keys = "y{ENTER}"
+	keys := "{ESC}"
+	switch decision {
+	case approvalProceed, approvalApprove:
+		keys = "y"
+	case approvalProceedAlways:
+		keys = "p"
+	case approvalReject:
+		keys = "{ESC}"
+	default:
+		return fmt.Errorf("cannot deliver approval: unsupported decision %q", decision)
 	}
 
 	script := fmt.Sprintf(

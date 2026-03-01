@@ -86,13 +86,13 @@ func (n *windowsNotifier) notify(title, body string, actions []Action) error {
 		}
 		return nil
 	case modePopup:
-		if err := n.runPowerShell(buildPopupScript(title, body)); err != nil {
+		if err := n.runPowerShell(buildPopupScriptWithActions(title, body, actions)); err != nil {
 			return fmt.Errorf("send windows notification (popup): %w", err)
 		}
 		return nil
 	default:
 		if err := n.runPowerShell(buildToastScriptWithActions(title, body, n.appID, actions)); err != nil {
-			fallbackErr := n.runPowerShell(buildPopupScript(title, body))
+			fallbackErr := n.runPowerShell(buildPopupScriptWithActions(title, body, actions))
 			if fallbackErr != nil {
 				return fmt.Errorf("send windows notification: toast failed: %v; popup fallback failed: %w", err, fallbackErr)
 			}

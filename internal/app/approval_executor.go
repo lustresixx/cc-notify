@@ -4,8 +4,10 @@ package app
 type approvalDecision string
 
 const (
-	approvalApprove approvalDecision = "approve"
-	approvalReject  approvalDecision = "reject"
+	approvalProceed       approvalDecision = "proceed"
+	approvalProceedAlways approvalDecision = "proceed-always"
+	approvalReject        approvalDecision = "reject"
+	approvalApprove       approvalDecision = "approve" // backward-compatible alias
 )
 
 // ApprovalExecutor applies a decision to the paused interactive session.
