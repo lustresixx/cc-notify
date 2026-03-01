@@ -6,6 +6,8 @@ on:
 
 jobs:
   test:
+    env:
+      GOTELEMETRY: off
     strategy:
       fail-fast: false
       matrix:

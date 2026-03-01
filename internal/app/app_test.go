@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -637,5 +638,96 @@ func TestRun_ProtocolURIRespond(t *testing.T) {
 	}
 	if len(executor.calls) != 1 {
 		t.Fatalf("expected one executor call, got %d", len(executor.calls))
+	}
+}
+
+func TestRun_NotifyPausedTerminalPromptDeliversDecision(t *testing.T) {
+	temp := t.TempDir()
+	settingsPath := filepath.Join(temp, "settings.json")
+	settings := Preferences{
+		Enabled:          true,
+		Persist:          true,
+		Mode:             "auto",
+		Content:          "summary",
+		PausePrompt:      "terminal",
+		IncludeDir:       true,
+		IncludeModel:     false,
+		IncludeEvent:     false,
+		FieldsConfigured: true,
+		ToastAppID:       "cc-notify.desktop",
+	}
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatalf("marshal settings: %v", err)
+	}
+	if err := os.WriteFile(settingsPath, raw, 0o644); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	actionNotifier := &fakeActionNotifier{}
+	executor := &fakeApprovalExecutor{}
+	approvalWriteCalls := 0
+	tool := New(Options{
+		Notifier:         actionNotifier,
+		ApprovalExecutor: executor,
+		Stdin:            strings.NewReader("2\n"),
+		Stdout:           &stdout,
+		Stderr:           &stderr,
+		SettingsPath:     func() (string, error) { return settingsPath, nil },
+		WriteFile: func(path string, data []byte, perm fs.FileMode) error {
+			if strings.Contains(path, string(filepath.Separator)+"approvals"+string(filepath.Separator)) {
+				approvalWriteCalls++
+				return os.ErrPermission
+			}
+			return os.WriteFile(path, data, perm)
+		},
+	})
+
+	code := tool.Run([]string{"notify", "{\"type\":\"agent-turn-paused\",\"summary\":\"Run `ping 127.0.0.1 -n 1`?\"}"})
+	if code != 0 {
+		t.Fatalf("notify paused failed: stderr=%q", stderr.String())
+	}
+	if actionNotifier.actionCount != 0 {
+		t.Fatalf("expected no popup/toast actions in terminal mode")
+	}
+	if len(executor.calls) != 1 {
+		t.Fatalf("expected one executor call, got %d", len(executor.calls))
+	}
+	if executor.calls[0].decision != approvalProceedAlways {
+		t.Fatalf("unexpected terminal decision: %q", executor.calls[0].decision)
+	}
+	if approvalWriteCalls != 0 {
+		t.Fatalf("terminal pause prompt should not write pending approval files")
+	}
+}
+
+func TestRun_NotifyClaudePermissionNotificationRoutesToPaused(t *testing.T) {
+	temp := t.TempDir()
+	settingsPath := filepath.Join(temp, "settings.json")
+
+	var stdout, stderr bytes.Buffer
+	actionNotifier := &fakeActionNotifier{}
+	tool := New(Options{
+		Notifier: actionNotifier,
+		Stdin: strings.NewReader(`{
+  "hook_type":"Notification",
+  "message":"Would you like to run the following command? ping 127.0.0.1 -n 1",
+  "cwd":"C:\\code\\demo"
+}`),
+		Stdout:       &stdout,
+		Stderr:       &stderr,
+		SettingsPath: func() (string, error) { return settingsPath, nil },
+	})
+
+	code := tool.Run([]string{"notify", "--claude"})
+	if code != 0 {
+		t.Fatalf("notify --claude failed: stderr=%q", stderr.String())
+	}
+	if actionNotifier.actionCount != 1 {
+		t.Fatalf("expected paused actionable prompt for claude approval notification, got %d", actionNotifier.actionCount)
+	}
+	if len(actionNotifier.actions) != 3 {
+		t.Fatalf("expected 3 actions, got %d", len(actionNotifier.actions))
 	}
 }

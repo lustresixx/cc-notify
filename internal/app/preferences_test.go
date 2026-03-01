@@ -11,6 +11,12 @@ func TestDefaultPreferences_UsesCodexToastAppID(t *testing.T) {
 	if p.ToastAppID != "cc-notify.desktop" {
 		t.Fatalf("expected default toast app id cc-notify.desktop, got %q", p.ToastAppID)
 	}
+	if p.Mode != "toast" {
+		t.Fatalf("expected default mode toast, got %q", p.Mode)
+	}
+	if p.PausePrompt != "toast" {
+		t.Fatalf("expected default pause prompt toast, got %q", p.PausePrompt)
+	}
 }
 
 func TestNormalizePreferences_MigratesLegacyToastAppID(t *testing.T) {

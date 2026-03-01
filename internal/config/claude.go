@@ -158,8 +158,8 @@ func ClaudeUpsertHook(content string, exePath string) (string, bool, error) {
 	cmd := buildNotifyCommand(exePath)
 	anyChanged := false
 
-	// Install on "Stop" event (task complete)
-	for _, event := range []string{"Stop"} {
+	// Install on "Stop" (task complete) and "Notification" (permission prompts).
+	for _, event := range []string{"Stop", "Notification"} {
 		matchers, err := getMatcherList(hooks, event)
 		if err != nil {
 			return "", false, err
@@ -209,7 +209,7 @@ func ClaudeRemoveHook(content string) (string, bool, error) {
 	}
 
 	anyChanged := false
-	for _, event := range []string{"Stop"} {
+	for _, event := range []string{"Stop", "Notification"} {
 		matchers, err := getMatcherList(hooks, event)
 		if err != nil {
 			return "", false, err

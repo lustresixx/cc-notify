@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -374,6 +375,8 @@ func (a *App) runNotify(args []string) error {
 		return err
 	}
 
+	payload.Type = normalizeClaudePaused(source, payload.Type)
+
 	enabled, mode, content := prefs.ToolPrefs(source)
 	if !enabled {
 		fmt.Fprintf(a.stdout, "notifications disabled for %s\n", source)
@@ -399,35 +402,117 @@ func (a *App) runNotify(args []string) error {
 		})
 	}
 
-	if payload.Type == "agent-turn-paused" {
-		actionTarget := service
-		if a.defaultNotifier {
-			// For approval prompts, prefer a guaranteed interactive dialog path.
-			// Toast action buttons can be hidden by OS banner behavior.
-			actionTarget = notifier.NewWithConfig(notifier.Config{
-				Mode:       "popup",
-				ToastAppID: prefs.ToastAppID,
-			})
-		}
-		if actionService, ok := actionTarget.(notifier.ActionService); ok {
-			pending, createErr := a.createPendingApproval(os.Getppid())
-			if createErr != nil {
-				return fmt.Errorf("create pending approval: %w", createErr)
-			}
-			actions := buildPausedActions(payload.Summary, pending.ID)
-			if err := actionService.NotifyWithActions(title, body, actions); err != nil {
-				_ = a.deletePendingApproval(pending.ID)
-				return err
-			}
-			fmt.Fprintf(a.stdout, "notification sent: %s (%s)\n", payload.Type, source)
-			return nil
-		}
+	switch payload.Type {
+	case "agent-turn-paused":
+		return a.handlePauseEvent(payload, title, body, prefs, source)
+	default:
+		return a.defaultNotify(title, body, service, payload.Type, source)
+	}
+}
+
+func (a *App) handlePauseEvent(payload event.Payload, title, body string, prefs Preferences, source string) error {
+	parentPID := os.Getppid()
+
+	notifierMode := notifier.Config{Mode: "popup", ToastAppID: prefs.ToastAppID}
+	switch prefs.PausePrompt {
+	case "toast":
+		notifierMode.Mode = "toast"
+	case "terminal":
+		return a.promptPauseInTerminal(payload, parentPID)
 	}
 
+	actionService := a.notifier
+	if a.defaultNotifier {
+		actionService = notifier.NewWithConfig(notifierMode)
+	}
+
+	svc, ok := actionService.(notifier.ActionService)
+	if !ok {
+		return a.promptPauseInTerminal(payload, parentPID)
+	}
+
+	pending, err := a.createPendingApproval(parentPID)
+	if err != nil {
+		return fmt.Errorf("create pending approval: %w", err)
+	}
+
+	actions := buildPausedActions(payload.Summary, pending.ID)
+	if err := svc.NotifyWithActions(title, body, actions); err != nil {
+		_ = a.deletePendingApproval(pending.ID)
+		return err
+	}
+	fmt.Fprintf(a.stdout, "approval prompt sent: %s (%s)\n", payload.Type, source)
+	return nil
+}
+
+func (a *App) promptPauseInTerminal(payload event.Payload, parentPID int) error {
+	commandHint := firstBacktickValue(payload.Summary)
+
+	fmt.Fprintln(a.stdout)
+	if commandHint != "" {
+		fmt.Fprintln(a.stdout, "Would you like to run the following command?")
+		fmt.Fprintln(a.stdout)
+		fmt.Fprintf(a.stdout, "$ %s\n\n", commandHint)
+	}
+	fmt.Fprintln(a.stdout, "Choose an option:")
+	fmt.Fprintln(a.stdout, "1. Yes, proceed (y)")
+	fmt.Fprintln(a.stdout, "2. Yes, and don't ask again for this pattern (p)")
+	fmt.Fprintln(a.stdout, "3. No, and tell Codex what to do differently (esc)")
+	fmt.Fprint(a.stdout, "> ")
+
+	reader := bufio.NewReader(a.stdin)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("read terminal approval input: %w", err)
+		}
+
+		choice := strings.TrimSpace(line)
+		decision, parseErr := parseTerminalPauseChoice(choice)
+		if parseErr == nil {
+			if deliverErr := a.approvalExecutor.Deliver(parentPID, decision); deliverErr != nil {
+				return deliverErr
+			}
+			fmt.Fprintf(a.stdout, "approval response delivered: %s\n", decision)
+			return nil
+		}
+
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("invalid terminal approval input: %q", choice)
+		}
+		fmt.Fprintln(a.stdout, "Select 1/2/3 (or y/p/esc).")
+		fmt.Fprint(a.stdout, "> ")
+	}
+}
+
+func parseTerminalPauseChoice(raw string) (approvalDecision, error) {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch normalized {
+	case "p":
+		return approvalProceedAlways, nil
+	case "esc":
+		return approvalReject, nil
+	}
+	return parseApprovalDecision(normalized)
+}
+
+func normalizeClaudePaused(source, eventType string) string {
+	if strings.ToLower(strings.TrimSpace(source)) != "claude" {
+		return eventType
+	}
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "paused", "agent-paused", "permission-request", "approval-required":
+		return "agent-turn-paused"
+	default:
+		return eventType
+	}
+}
+
+func (a *App) defaultNotify(title, body string, service notifier.Service, eventType, source string) error {
 	if err := service.Notify(title, body); err != nil {
 		return err
 	}
-	fmt.Fprintf(a.stdout, "notification sent: %s (%s)\n", payload.Type, source)
+	fmt.Fprintf(a.stdout, "notification sent: %s (%s)\n", eventType, source)
 	return nil
 }
 
@@ -487,33 +572,35 @@ func (a *App) readClaudeHookInput() (string, error) {
 		return "", fmt.Errorf("parse claude hook input: %w", err)
 	}
 
-	// Map Claude hook type to our event type
-	hookType, _ := claudeInput["hook_type"].(string)
+	// Map Claude hook type to our event type.
+	hookType := strings.TrimSpace(stringValue(claudeInput["hook_type"]))
 	eventType := "agent-turn-complete"
-	switch hookType {
-	case "Stop":
+	switch strings.ToLower(hookType) {
+	case "stop":
 		eventType = "agent-turn-complete"
+	case "notification":
+		if isClaudeApprovalPrompt(claudeInput) {
+			eventType = "agent-turn-paused"
+		} else {
+			// Non-approval notifications are ignored by the renderer.
+			eventType = "claude-notification"
+		}
 	default:
 		eventType = "agent-turn-complete"
 	}
 
-	// Extract useful fields
-	summary := ""
-	cwd := ""
-	model := ""
-	transcriptPath := ""
-
-	if v, ok := claudeInput["cwd"].(string); ok {
-		cwd = v
-	}
-	if v, ok := claudeInput["session_id"].(string); ok && summary == "" {
-		summary = "Claude Code session " + v + " completed"
-	}
-	if v, ok := claudeInput["transcript_path"].(string); ok {
-		transcriptPath = v
-	}
-	if v, ok := claudeInput["model"].(string); ok {
-		model = v
+	// Extract useful fields.
+	summary := strings.TrimSpace(firstNonEmptyString(
+		stringValue(claudeInput["summary"]),
+		stringValue(claudeInput["message"]),
+		stringValue(claudeInput["prompt"]),
+		stringValue(claudeInput["reason"]),
+	))
+	cwd := strings.TrimSpace(stringValue(claudeInput["cwd"]))
+	model := strings.TrimSpace(stringValue(claudeInput["model"]))
+	transcriptPath := strings.TrimSpace(stringValue(claudeInput["transcript_path"]))
+	if sessionID := strings.TrimSpace(stringValue(claudeInput["session_id"])); sessionID != "" && summary == "" {
+		summary = "Claude Code session " + sessionID + " completed"
 	}
 
 	// Build our standard payload
@@ -530,6 +617,46 @@ func (a *App) readClaudeHookInput() (string, error) {
 		return "", fmt.Errorf("marshal converted payload: %w", err)
 	}
 	return string(result), nil
+}
+
+func stringValue(raw interface{}) string {
+	value, _ := raw.(string)
+	return value
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func isClaudeApprovalPrompt(payload map[string]interface{}) bool {
+	candidates := []string{
+		stringValue(payload["summary"]),
+		stringValue(payload["message"]),
+		stringValue(payload["prompt"]),
+		stringValue(payload["reason"]),
+	}
+	fullText := strings.ToLower(strings.Join(candidates, "\n"))
+	if strings.Contains(fullText, "would you like to run") {
+		return true
+	}
+	if strings.Contains(fullText, "requires your approval") || strings.Contains(fullText, "needs your approval") {
+		return true
+	}
+	if strings.Contains(fullText, "permission") && strings.Contains(fullText, "command") {
+		return true
+	}
+	if strings.Contains(fullText, "allow") && strings.Contains(fullText, "command") {
+		return true
+	}
+	if strings.Contains(fullText, "是否执行") || strings.Contains(fullText, "需要你的批准") || strings.Contains(fullText, "允许执行") {
+		return true
+	}
+	return false
 }
 
 func (a *App) runTestNotify(args []string) error {
@@ -791,6 +918,8 @@ func parseApprovalDecision(raw string) (approvalDecision, error) {
 	case "proceed", "once", "1":
 		return approvalProceed, nil
 	case "proceed-always", "always", "persist", "2":
+		return approvalProceedAlways, nil
+	case "p":
 		return approvalProceedAlways, nil
 	case "approve", "yes", "y":
 		return approvalProceed, nil

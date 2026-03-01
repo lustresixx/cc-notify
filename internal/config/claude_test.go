@@ -137,3 +137,41 @@ func TestClaudeRemoveHook_NoHook(t *testing.T) {
 		t.Fatal("expected no change")
 	}
 }
+
+func TestClaudeUpsertHook_InstallsNotificationHook(t *testing.T) {
+	out, changed, err := ClaudeUpsertHook("", `C:\tools\cc-notify.exe`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed")
+	}
+	if !strings.Contains(out, `"Notification"`) {
+		t.Fatalf("expected Notification hook to be installed: %q", out)
+	}
+}
+
+func TestClaudeRemoveHook_RemovesNotificationHook(t *testing.T) {
+	existing := `{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {"type": "command", "command": "C:\\tools\\cc-notify.exe notify --claude"}
+        ]
+      }
+    ]
+  }
+}`
+	out, changed, err := ClaudeRemoveHook(existing)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed")
+	}
+	if strings.Contains(out, "cc-notify") {
+		t.Fatalf("expected Notification hook to be removed: %q", out)
+	}
+}

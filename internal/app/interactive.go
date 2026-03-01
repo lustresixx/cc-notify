@@ -46,7 +46,7 @@ const (
 )
 
 // version is the tool version shown in the header.
-const version = "v0.4.1"
+const version = "v0.4.3"
 
 const (
 	tabDefault = 0
@@ -295,6 +295,11 @@ func (a *App) defaultTabItems(p Preferences) []menuItem {
 	modeOpts := []string{"auto  " + colorDim + symDot + " toast first, popup fallback" + colorReset,
 		"toast " + colorDim + symDot + " Windows system notification" + colorReset,
 		"popup " + colorDim + symDot + " popup dialog" + colorReset}
+	promptOpts := []string{
+		"popup    " + colorDim + symDot + " desktop popup dialog" + colorReset,
+		"toast    " + colorDim + symDot + " Windows notification buttons" + colorReset,
+		"terminal " + colorDim + symDot + " inline prompt inside Codex/Claude terminal" + colorReset,
+	}
 	contentOpts := []string{
 		"summary  " + colorDim + symDot + " short summary" + colorReset,
 		"full     " + colorDim + symDot + " full assistant message" + colorReset,
@@ -317,6 +322,18 @@ func (a *App) defaultTabItems(p Preferences) []menuItem {
 					return actionResult{status: fmt.Sprintf("%s✗ %v%s", colorRed, err, colorReset)}
 				}
 				prefs.Mode = []string{"auto", "toast", "popup"}[sel]
+				return actionResult{status: a.saveOrSessionText(*prefs)}
+			},
+		},
+		{
+			label: fmt.Sprintf("%s Approval prompt mode    %s%s%s", symBell, colorDim, p.PausePrompt, colorReset),
+			action: func(prefs *Preferences) actionResult {
+				start := indexOf([]string{"popup", "toast", "terminal"}, prefs.PausePrompt)
+				sel, err := a.selectSingleTTY("Approval Prompt", "How pause approvals are displayed.", promptOpts, start)
+				if err != nil {
+					return actionResult{status: fmt.Sprintf("%s✗ %v%s", colorRed, err, colorReset)}
+				}
+				prefs.PausePrompt = []string{"popup", "toast", "terminal"}[sel]
 				return actionResult{status: a.saveOrSessionText(*prefs)}
 			},
 		},
@@ -632,6 +649,10 @@ func (a *App) runInteractiveLineUI(prefs *Preferences) error {
 			prefs.Content = nextContentMode(prefs.Content)
 			a.printSavedOrSession(*prefs)
 		case "4":
+			prefs.PausePrompt = nextPausePrompt(prefs.PausePrompt)
+			a.printSavedOrSession(*prefs)
+			fmt.Fprintf(a.stdout, "  Prompt -> %s%s%s (%s)\n", colorCyan, prefs.PausePrompt, colorReset, pausePromptHint(prefs.PausePrompt))
+		case "5":
 			fmt.Fprintf(a.stdout, "  Toast AppId (blank = default): ")
 			appID, e := readInteractiveLine(reader, nil)
 			if e != nil {
@@ -643,25 +664,25 @@ func (a *App) runInteractiveLineUI(prefs *Preferences) error {
 			}
 			prefs.ToastAppID = appID
 			a.printSavedOrSession(*prefs)
-		case "5":
+		case "6":
 			if err := a.previewNotification(*prefs); err != nil {
 				fmt.Fprintf(a.stderr, "  %s%s✗%s preview failed: %v\n", colorBold, colorRed, colorReset, err)
 			} else {
 				fmt.Fprintf(a.stdout, "  %s%s✓%s Preview sent.\n", colorBold, colorGreen, colorReset)
 			}
-		case "6":
+		case "7":
 			if err := a.runInstall([]string{"codex"}); err != nil {
 				fmt.Fprintf(a.stderr, "  %s%s✗%s Codex install failed: %v\n", colorBold, colorRed, colorReset, err)
 			} else {
 				fmt.Fprintf(a.stdout, "  %s%s✓%s Codex hook installed.\n", colorBold, colorGreen, colorReset)
 			}
-		case "7":
+		case "8":
 			if err := a.runInstall([]string{"claude"}); err != nil {
 				fmt.Fprintf(a.stderr, "  %s%s✗%s Claude install failed: %v\n", colorBold, colorRed, colorReset, err)
 			} else {
 				fmt.Fprintf(a.stdout, "  %s%s✓%s Claude Code hook installed.\n", colorBold, colorGreen, colorReset)
 			}
-		case "8":
+		case "9":
 			if err := a.savePreferences(*prefs); err != nil {
 				fmt.Fprintf(a.stderr, "  %s%s✗%s save failed: %v\n", colorBold, colorRed, colorReset, err)
 			} else {
@@ -674,7 +695,7 @@ func (a *App) runInteractiveLineUI(prefs *Preferences) error {
 			fmt.Fprintf(a.stdout, "\n  %s%sGoodbye!%s\n\n", colorDim, colorCyan, colorReset)
 			return nil
 		default:
-			fmt.Fprintf(a.stderr, "  %sUnknown option. Choose 1-8 or 0 to exit.%s\n", colorDim, colorReset)
+			fmt.Fprintf(a.stderr, "  %sUnknown option. Choose 1-9 or 0 to exit.%s\n", colorDim, colorReset)
 		}
 	}
 }
@@ -712,7 +733,8 @@ func (a *App) renderInteractiveMenu(p Preferences) {
 				{"1", "Toggle notifications", ""},
 				{"2", "Cycle notification mode", "auto/toast/popup"},
 				{"3", "Cycle content mode", "summary/full/complete"},
-				{"4", "Set Toast AppId", ""},
+				{"4", "Cycle approval prompt mode", "popup/toast/terminal"},
+				{"5", "Set Toast AppId", ""},
 			},
 		},
 		{
@@ -722,10 +744,10 @@ func (a *App) renderInteractiveMenu(p Preferences) {
 				text string
 				hint string
 			}{
-				{"5", "Send preview notification", ""},
-				{"6", "Install Codex hook", "~/.codex/config.toml"},
-				{"7", "Install Claude Code hook", "~/.claude/settings.json"},
-				{"8", "Save settings now", ""},
+				{"6", "Send preview notification", ""},
+				{"7", "Install Codex hook", "~/.codex/config.toml"},
+				{"8", "Install Claude Code hook", "~/.claude/settings.json"},
+				{"9", "Save settings now", ""},
 				{"0", "Exit", ""},
 			},
 		},
@@ -982,6 +1004,17 @@ func modeHint(mode string) string {
 	}
 }
 
+func pausePromptHint(mode string) string {
+	switch mode {
+	case "toast":
+		return "Windows notification buttons"
+	case "terminal":
+		return "inline prompt in terminal"
+	default:
+		return "desktop popup dialog"
+	}
+}
+
 func nextContentMode(current string) string {
 	switch current {
 	case "summary":
@@ -990,6 +1023,17 @@ func nextContentMode(current string) string {
 		return "complete"
 	default:
 		return "summary"
+	}
+}
+
+func nextPausePrompt(current string) string {
+	switch current {
+	case "popup":
+		return "toast"
+	case "toast":
+		return "terminal"
+	default:
+		return "popup"
 	}
 }
 

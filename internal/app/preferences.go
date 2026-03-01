@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	defaultNotifyMode  = "auto"
+	defaultNotifyMode  = "toast"
 	defaultContentMode = "summary"
+	defaultPausePrompt = "toast"
 	defaultToastAppID  = "cc-notify.desktop"
 	legacyToastAppID   = "Windows PowerShell"
 	legacyToastAppID2  = "codex-notified.desktop"
@@ -26,6 +27,7 @@ type Preferences struct {
 	IncludeDir       bool   `json:"include_dir"`
 	IncludeModel     bool   `json:"include_model"`
 	IncludeEvent     bool   `json:"include_event"`
+	PausePrompt      string `json:"pause_prompt"`
 	FieldsConfigured bool   `json:"fields_configured"`
 	ToastAppID       string `json:"toast_app_id"`
 	SetupDone        bool   `json:"setup_done"`
@@ -77,6 +79,7 @@ func DefaultPreferences() Preferences {
 		Persist:          true,
 		Mode:             defaultNotifyMode,
 		Content:          defaultContentMode,
+		PausePrompt:      defaultPausePrompt,
 		IncludeDir:       true,
 		IncludeModel:     false,
 		IncludeEvent:     false,
@@ -96,6 +99,9 @@ func normalizePreferences(p Preferences) Preferences {
 	if strings.TrimSpace(p.Content) == "" {
 		p.Content = def.Content
 	}
+	if strings.TrimSpace(p.PausePrompt) == "" {
+		p.PausePrompt = def.PausePrompt
+	}
 	if strings.TrimSpace(p.ToastAppID) == "" {
 		p.ToastAppID = def.ToastAppID
 	}
@@ -109,6 +115,11 @@ func normalizePreferences(p Preferences) Preferences {
 	case "complete", "summary", "full":
 	default:
 		p.Content = def.Content
+	}
+	switch p.PausePrompt {
+	case "popup", "terminal", "toast":
+	default:
+		p.PausePrompt = def.PausePrompt
 	}
 	if !p.FieldsConfigured {
 		p.IncludeDir = def.IncludeDir
