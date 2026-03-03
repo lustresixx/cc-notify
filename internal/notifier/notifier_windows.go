@@ -81,7 +81,13 @@ func (n *windowsNotifier) NotifyWithActions(title, body string, actions []Action
 func (n *windowsNotifier) notify(title, body string, actions []Action) error {
 	switch n.mode {
 	case modeToast:
-		if err := n.runPowerShell(buildToastScriptWithActions(title, body, n.appID, actions)); err != nil {
+		if err := n.sendToastWithLegacyFallback(title, body, actions); err != nil {
+			if isToastAccessDenied(err) {
+				if fallbackErr := n.runPowerShell(buildPopupScriptWithActions(title, body, actions)); fallbackErr != nil {
+					return fmt.Errorf("send windows notification (toast): %v; popup fallback failed: %w", err, fallbackErr)
+				}
+				return nil
+			}
 			return fmt.Errorf("send windows notification (toast): %w", err)
 		}
 		return nil
@@ -91,7 +97,7 @@ func (n *windowsNotifier) notify(title, body string, actions []Action) error {
 		}
 		return nil
 	default:
-		if err := n.runPowerShell(buildToastScriptWithActions(title, body, n.appID, actions)); err != nil {
+		if err := n.sendToastWithLegacyFallback(title, body, actions); err != nil {
 			fallbackErr := n.runPowerShell(buildPopupScriptWithActions(title, body, actions))
 			if fallbackErr != nil {
 				return fmt.Errorf("send windows notification: toast failed: %v; popup fallback failed: %w", err, fallbackErr)
@@ -99,6 +105,34 @@ func (n *windowsNotifier) notify(title, body string, actions []Action) error {
 		}
 		return nil
 	}
+}
+
+func isToastAccessDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "e_accessdenied") ||
+		strings.Contains(msg, "0x80070005") ||
+		strings.Contains(msg, "access is denied")
+}
+
+func (n *windowsNotifier) sendToastWithLegacyFallback(title, body string, actions []Action) error {
+	primaryErr := n.runPowerShell(buildToastScriptWithActions(title, body, n.appID, actions))
+	if primaryErr == nil {
+		return nil
+	}
+
+	if strings.EqualFold(strings.TrimSpace(n.appID), legacyToastAppID) {
+		return primaryErr
+	}
+
+	legacyErr := n.runPowerShell(buildToastScriptWithActions(title, body, legacyToastAppID, actions))
+	if legacyErr == nil {
+		return nil
+	}
+
+	return fmt.Errorf("primary app id %q failed: %v; legacy app id fallback failed: %w", n.appID, primaryErr, legacyErr)
 }
 
 func parseNotifyMode(raw string) notifyMode {

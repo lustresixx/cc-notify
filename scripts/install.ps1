@@ -108,6 +108,19 @@ function Should-CopyExecutable([string]$sourcePath, [string]$destPath) {
   return $srcHash -ne $dstHash
 }
 
+function Try-CopyExecutable([string]$sourcePath, [string]$destPath) {
+  try {
+    Copy-Item -Force $sourcePath $destPath
+    return $true
+  } catch {
+    if (Test-Path $destPath) {
+      Write-Warning ("Failed to update executable, keeping existing binary: " + $_.Exception.Message)
+      return $false
+    }
+    throw
+  }
+}
+
 function Ensure-ToastShortcut([string]$exePath, [string]$linkPath, [string]$appID) {
   $linkDir = Split-Path -Parent $linkPath
   New-Item -ItemType Directory -Force $linkDir | Out-Null
@@ -230,8 +243,10 @@ $sourceExe = Resolve-SourceExe $ExePath
 if ($installed) {
   if (Should-CopyExecutable $sourceExe $targetExe) {
     New-Item -ItemType Directory -Force $targetDir | Out-Null
-    Copy-Item -Force $sourceExe $targetExe
-    Write-Host "Updated installed executable to latest version."
+    $copied = Try-CopyExecutable $sourceExe $targetExe
+    if ($copied) {
+      Write-Host "Updated installed executable to latest version."
+    }
     & $targetExe install
   } else {
     Write-Host "cc-notify is already installed and up to date."
@@ -240,7 +255,7 @@ if ($installed) {
   New-Item -ItemType Directory -Force $targetDir | Out-Null
 
   if (Should-CopyExecutable $sourceExe $targetExe) {
-    Copy-Item -Force $sourceExe $targetExe
+    $null = Try-CopyExecutable $sourceExe $targetExe
   }
 
   Write-Host "Installed executable to: $targetExe"
@@ -252,9 +267,21 @@ if ($installed) {
   }
 }
 
-Ensure-ToastShortcut $targetExe $shortcutPath $toastAppID
-Update-SettingsToastAppId $settingsPath $toastAppID
-Ensure-UriProtocol $targetExe
+try {
+  Ensure-ToastShortcut $targetExe $shortcutPath $toastAppID
+} catch {
+  Write-Warning ("Failed to create toast shortcut: " + $_.Exception.Message)
+}
+try {
+  Update-SettingsToastAppId $settingsPath $toastAppID
+} catch {
+  Write-Warning ("Failed to update toast_app_id in settings: " + $_.Exception.Message)
+}
+try {
+  Ensure-UriProtocol $targetExe
+} catch {
+  Write-Warning ("Failed to register cc-notify protocol: " + $_.Exception.Message)
+}
 
 if ($launchInteractiveBool) {
   Write-Host "Launching interactive control center..."

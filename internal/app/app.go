@@ -187,14 +187,34 @@ func (a *App) runInstall(args []string) error {
 		if err := a.installClaude(exePath); err != nil {
 			fmt.Fprintf(a.stderr, "  claude install: %v\n", err)
 		}
-		return nil
 	case "codex":
-		return a.installCodex(exePath)
+		if err := a.installCodex(exePath); err != nil {
+			return err
+		}
 	case "claude":
-		return a.installClaude(exePath)
+		if err := a.installClaude(exePath); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("unknown install target: %s (use codex, claude, or leave empty for both)", target)
 	}
+
+	// Ensure Windows toast shortcut and URI protocol are set up so that
+	// notifications and action buttons work after reboot without needing
+	// the separate install.ps1 script.
+	prefs, _, _ := a.loadPreferences()
+	appID := prefs.ToastAppID
+	if appID == "" {
+		appID = defaultToastAppID
+	}
+	if err := ensureToastShortcut(exePath, appID); err != nil {
+		fmt.Fprintf(a.stderr, "  toast shortcut: %v\n", err)
+	}
+	if err := ensureURIProtocol(exePath); err != nil {
+		fmt.Fprintf(a.stderr, "  uri protocol: %v\n", err)
+	}
+
+	return nil
 }
 
 func (a *App) installCodex(exePath string) error {

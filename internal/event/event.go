@@ -8,6 +8,9 @@ import (
 )
 
 // Payload is the Codex notify JSON payload.
+// It accepts both hyphenated (last-assistant-message, transcript-path) and
+// underscored (last_assistant_message, transcript_path) field names so that
+// payloads from different Codex CLI versions are handled correctly.
 type Payload struct {
 	Type                 string `json:"type"`
 	Summary              string `json:"summary"`
@@ -15,6 +18,41 @@ type Payload struct {
 	CWD                  string `json:"cwd"`
 	Model                string `json:"model"`
 	TranscriptPath       string `json:"transcript-path"`
+}
+
+// UnmarshalJSON implements custom JSON decoding that accepts both hyphenated
+// and underscored field names for backward/forward compatibility.
+func (p *Payload) UnmarshalJSON(data []byte) error {
+	// Use an alias to avoid infinite recursion.
+	type payloadAlias Payload
+	var alias payloadAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Check for underscore variants that the standard decoder misses.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if alias.LastAssistantMessage == "" {
+			if v, ok := raw["last_assistant_message"]; ok {
+				var s string
+				if json.Unmarshal(v, &s) == nil {
+					alias.LastAssistantMessage = s
+				}
+			}
+		}
+		if alias.TranscriptPath == "" {
+			if v, ok := raw["transcript_path"]; ok {
+				var s string
+				if json.Unmarshal(v, &s) == nil {
+					alias.TranscriptPath = s
+				}
+			}
+		}
+	}
+
+	*p = Payload(alias)
+	return nil
 }
 
 // ContentMode controls which payload content is used for notification body.

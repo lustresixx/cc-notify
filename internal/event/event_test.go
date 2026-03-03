@@ -179,6 +179,66 @@ func TestRenderNotificationWithOptions_PausedCompleteMode(t *testing.T) {
 	}
 }
 
+func TestParsePayload_UnderscoreKeys(t *testing.T) {
+	raw := `{"type":"agent-turn-complete","summary":"done","last_assistant_message":"full answer","transcript_path":"C:\\logs\\t.json"}`
+	got, err := ParsePayload(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.LastAssistantMessage != "full answer" {
+		t.Fatalf("expected underscore last_assistant_message parsed, got %q", got.LastAssistantMessage)
+	}
+	if got.TranscriptPath != `C:\logs\t.json` {
+		t.Fatalf("expected underscore transcript_path parsed, got %q", got.TranscriptPath)
+	}
+}
+
+func TestParsePayload_HyphenatedKeysStillWork(t *testing.T) {
+	raw := `{"type":"agent-turn-complete","summary":"done","last-assistant-message":"hyphenated msg","transcript-path":"C:\\logs\\h.json"}`
+	got, err := ParsePayload(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.LastAssistantMessage != "hyphenated msg" {
+		t.Fatalf("expected hyphenated last-assistant-message parsed, got %q", got.LastAssistantMessage)
+	}
+	if got.TranscriptPath != `C:\logs\h.json` {
+		t.Fatalf("expected hyphenated transcript-path parsed, got %q", got.TranscriptPath)
+	}
+}
+
+func TestParsePayload_MixedKeys_HyphenTakesPrecedence(t *testing.T) {
+	raw := `{"type":"agent-turn-complete","summary":"done","last-assistant-message":"hyphen wins","last_assistant_message":"underscore loses","transcript-path":"C:\\h.json","transcript_path":"C:\\u.json"}`
+	got, err := ParsePayload(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.LastAssistantMessage != "hyphen wins" {
+		t.Fatalf("expected hyphenated key to take precedence, got %q", got.LastAssistantMessage)
+	}
+	if got.TranscriptPath != `C:\h.json` {
+		t.Fatalf("expected hyphenated key to take precedence, got %q", got.TranscriptPath)
+	}
+}
+
+func TestRenderNotificationWithOptions_FullModeUnderscoreKeys(t *testing.T) {
+	raw := `{"type":"agent-turn-complete","summary":"short","last_assistant_message":"full underscore body"}`
+	payload, err := ParsePayload(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_, body, ok := RenderNotificationWithOptions(payload, RenderOptions{
+		ContentMode: ContentModeFull,
+		IncludeDir:  false,
+	})
+	if !ok {
+		t.Fatalf("expected supported event type")
+	}
+	if body != "full underscore body" {
+		t.Fatalf("expected full body from underscore key, got %q", body)
+	}
+}
+
 func TestRenderNotification_TruncatesByRunesNotBytes(t *testing.T) {
 	payload := Payload{
 		Type:    "agent-turn-complete",
